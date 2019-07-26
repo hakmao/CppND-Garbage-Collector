@@ -15,25 +15,22 @@
 template <class T, int size = 0>
 class Pointer{
 private:
-    // refContainer maintains the garbage collection list.
+    /** Static variable 'refContainer' maintains the garbage collection list. */
     static std::list<PtrDetails<T> > refContainer;
-    // addr points to the allocated memory to which
-    // this Pointer pointer currently points.
+    static bool first; // 'first' true when first Pointer is created
+    /* Variable 'addr' points to the allocated heap memory which this Pointer object currently tracks.*/ 
     T *addr;
-    /*  isArray is true if this Pointer points
-        to an allocated array. It is false
-        otherwise. 
+    /*  Property 'isArray' is true if & only if this Pointer points
+        to an allocated array. 
+        Variable 'arraySize' is greater than zero if & only if 'isArray' is true,
+        in which case it contains the array's size.
     */
-    bool isArray; 
-    // true if pointing to array
-    // If this Pointer is pointing to an allocated
-    // array, then arraySize contains its size.
-    unsigned arraySize; // size of the array
-    static bool first; // true when first Pointer is created
-    // Return an iterator to pointer details in refContainer.
+    bool isArray; // 'isArray' true if & only if object points to array
+    unsigned arraySize; // 'arraySize' contains the size of the array
+    /** 'fintPtrInfo()' returns an iterator to a PtrDetails object in refContainer. */
     typename std::list<PtrDetails<T> >::iterator findPtrInfo(T *ptr);
 public:
-    // Define an iterator type for Pointer<T>.
+    /* Define an iterator type for Pointer<T>. */
     typedef Iter<T> GCiterator;
     // Empty constructor
     // NOTE: templates aren't able to have prototypes with default arguments
@@ -60,6 +57,7 @@ public:
     }
     // Return the address being pointed to.
     T *operator->() { return addr; }
+    T * get() const { return addr; }
     // Return a reference to the object at the
     // index specified by i.
     T &operator[](int i){ return addr[i];}
@@ -98,25 +96,116 @@ std::list<PtrDetails<T> > Pointer<T, size>::refContainer;
 template <class T, int size>
 bool Pointer<T, size>::first = true;
 
-// Constructor for both initialized and uninitialized objects. -> see class interface
+/** Constructor for both initialized and uninitialized objects. 
+ * Precondition: new Pointer object has no corresponding PtrDetails object 
+ * in GC list.
+ * Postcondition: new PtrDetails object corresponding to Pointer object is 
+ * present in GC list, with reference count 1.
+*/
 template<class T,int size>
 Pointer<T,size>::Pointer(T *t){
     // Register shutdown() as an exit function.
     if (first)
-        atexit(shutdown);
+        std::atexit(shutdown);
     first = false;
 
     // TODO: Implement Pointer constructor
     // Lab: Smart Pointer Project Lab
-
+    this->addr = t;
+    if (size > 0){
+        this->arraySize = size;
+        this->isArray = true;
+    }
+    else
+    {
+        this->arraySize = 0;
+        this->isArray = false;
+    }
+    // Create PtrDetails object and add to refContainer 
+    refContainer.push_front(PtrDetails<T>(this->addr, this->arraySize));
 }
-// Copy constructor.
+
+/** Copy constructor:
+ * Preconditions: 
+ * - 'ptrObj' is an already initialised Pointer object, thus has a corresponding PtrDetails object in the GC list with reference count > 0.
+ * - new Pointer object has no pre-existing PtrDetails object in list. 
+ * Postconditions: 
+ * - new Pointer object has properties of ptrObj, 
+ * - reference count of corresponding PtrDetails object is incremented by 1.
+ */
 template< class T, int size>
-Pointer<T,size>::Pointer(const Pointer &ob){
+Pointer<T,size>::Pointer(const Pointer &ptrObj){
 
     // TODO: Implement Pointer constructor
     // Lab: Smart Pointer Project Lab
+    auto pd = findPtrInfo(ptrObj.get()); //must be present in GC list
 
+    // increment refcount
+    ++(pd->refcount);
+    //copy data
+    this->addr = pd->memPtr;
+    this->isArray = pd->isArray;
+    this->arraySize = pd->arraySize;
+}
+/** Overload assignment of Pointer to Pointer (copy assignment operator):
+ * Preconditions: 
+ * - RHS 'ptrObj' is an existing Pointer object (call it P_1), not a raw pointer, so there will be a corresponding PtrDetails object in the GC list (with reference count > 0).
+ * - LHS variable points to an already existing Pointer object with corresponding PtrDetails object in the GC list.
+ *  
+ */
+template <class T, int size>
+Pointer<T, size> &Pointer<T, size>::operator=(Pointer &ptrObj){
+    // TODO: Implement operator=
+    // LAB: Smart Pointer Project Lab
+    //Find LHS and RHS pointer details
+    auto lhs_pd = findPtrInfo(this->addr); // must exist
+    auto rhs_pd = findPtrInfo(ptrObj.get()); // must exist
+    if (lhs_pd != rhs_pd) // Guard against self assignment
+    {
+        //Decrement reference count for LHS pointer details 
+        lhs_pd->refcount--;
+        //Increment count for RHS pointer details 
+        rhs_pd->refcount++;
+        // Copy RHS details to LHS
+        this->addr = rhs_pd->memPtr;
+        this->isArray = rhs_pd->isArray;
+        this->arraySize = rhs_pd->arraySize;
+    }
+    // Return
+    return *this;
+}
+/** Overload assignment of raw pointer to Pointer:
+ * Preconditions: 
+ * - 't' is a raw pointer, NOT a Pointer object. If it already corresponds to an item in the GC list, then we do NOT assign (to prevent potential problems managing deletion). If it is not currently in the list, then we create a new PtrDetails object and add it to the GC list.
+ * - If LHS is already initialised, then we need to decrement the reference count for its current PtrDetails object before associating it with a new PtrDetails object.
+ */
+template <class T, int size>
+T *Pointer<T, size>::operator=(T *t){
+
+    // TODO: Implement operator=
+    // LAB: Smart Pointer Project Lab
+    //Check whether LHS and RHS already have entries in GC list
+    //Get LHS and RHS pointer details (if any) from GC list
+    auto lhs_pd = findPtrInfo(this->addr); 
+    auto rhs_pd = findPtrInfo(t); 
+
+    if (rhs_pd != refContainer.end()) // RHS already in GC list: do not assign!
+    {
+        //Better to throw exception, so change this later
+        std::cout << "Improper assignment to pointer." << std::endl;
+    }
+    else // RHS doesn't exist in GC list, so proceed with assignment
+    {
+        if (lhs_pd != refContainer.end()){
+            --(lhs_pd->refcount);
+        }
+        // Create PtrDetails object and add to refContainer 
+        this->addr = t;
+        this->arraySize = size;
+        refContainer.push_front(PtrDetails<T>(this->addr, this->arraySize));
+    }
+    //Return pointer to T
+    return t;
 }
 
 // Destructor for Pointer.
@@ -125,34 +214,49 @@ Pointer<T, size>::~Pointer(){
     
     // TODO: Implement Pointer destructor
     // Lab: New and Delete Project Lab
+    //Find pointer details in GC list
+    typename std::list<PtrDetails<T> >::iterator p;
+    p = findPtrInfo(addr);
+    //Decrement refcount of corresponding PtrDetails object
+    --(p->refcount);
+    //Recover memory --call collect()
+    collect();
 }
 
 // Collect garbage. Returns true if at least
 // one object was freed.
 template <class T, int size>
 bool Pointer<T, size>::collect(){
-
     // TODO: Implement collect function
     // LAB: New and Delete Project Lab
     // Note: collect() will be called in the destructor
-    return false;
-}
-
-// Overload assignment of pointer to Pointer.
-template <class T, int size>
-T *Pointer<T, size>::operator=(T *t){
-
-    // TODO: Implement operator==
-    // LAB: Smart Pointer Project Lab
-
-}
-// Overload assignment of Pointer to Pointer.
-template <class T, int size>
-Pointer<T, size> &Pointer<T, size>::operator=(Pointer &rv){
-
-    // TODO: Implement operator==
-    // LAB: Smart Pointer Project Lab
-
+    bool memory_freed = false;
+    //Traverse the GC list, checking the refcount of the PtrDetails objects
+    typename std::list<PtrDetails<T> >::iterator p = refContainer.begin();
+    while ( p != refContainer.end()){
+        /* Note that calling erase() directly within a for-loop would invalidate the iterator, so we use a while loop and reset the iterator to the next element using the return value of erase() */
+        if (p->refcount < 1) //reference count is zero, so recover memory
+        {
+            //Call delete or delete[] as appropriate
+            if (p->isArray)
+            {
+                delete[] p->memPtr;
+            }
+            else
+            {
+                delete p->memPtr;
+            }
+            /* Remove the PtrDetails object from GC list, and reset the iterator p to the next element using the return value of erase() */
+            p = refContainer.erase(p);
+            //change return status
+            memory_freed = true;
+        }
+        else //memory is in use, so move to next element
+        {
+            ++p;
+        }
+    }
+    return memory_freed;
 }
 
 // A utility function that displays refContainer.
