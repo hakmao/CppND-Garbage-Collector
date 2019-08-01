@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include "gc_details.h"
 #include "gc_iterator.h"
+#define DEBUG
 /*
     Pointer implements a pointer type that uses
     garbage collection to release unused memory.
@@ -38,7 +39,7 @@ public:
     Pointer(){
         Pointer(NULL);
     }
-    Pointer(T*);
+    Pointer(T* t);
     // Copy constructor.
     Pointer(const Pointer &);
     // Destructor for Pointer.
@@ -111,41 +112,57 @@ Pointer<T,size>::Pointer(T *t){
 
     // TODO: Implement Pointer constructor
     // Lab: Smart Pointer Project Lab
+    auto p = findPtrInfo(t);
+    //If t already exists, increment its reference count;
+    //otherwise, add pointer details to GC list
+    if (p != refContainer.end())
+        p->refcount++;
+    else {
+        // Create PtrDetails object and add to refContainer 
+        refContainer.push_front(PtrDetails<T>(t, size));
+    }
     this->addr = t;
-    if (size > 0){
-        this->arraySize = size;
+    this->arraySize = size;
+    if (size > 0)
         this->isArray = true;
-    }
     else
-    {
-        this->arraySize = 0;
         this->isArray = false;
-    }
-    // Create PtrDetails object and add to refContainer 
-    refContainer.push_front(PtrDetails<T>(this->addr, this->arraySize));
+#ifdef DEBUG
+    std::cout << "Called standard constructor for Pointer object with address: " 
+              << t 
+              << std::endl;
+#endif
 }
 
 /** Copy constructor:
  * Preconditions: 
- * - 'ptrObj' is an already initialised Pointer object, thus has a corresponding PtrDetails object in the GC list with reference count > 0.
- * - new Pointer object has no pre-existing PtrDetails object in list. 
+ * - RHS is already initialised, thus corresponds to a PtrDetails object in the GC list with reference count > 0.
+ * - LHS Pointer object is also in GC list, with reference count > 0.
  * Postconditions: 
- * - new Pointer object has properties of ptrObj, 
- * - reference count of corresponding PtrDetails object is incremented by 1.
+ * - LHS Pointer object has properties of ptrObj,
+ * - reference count of previous object pointed to by LHS is decremented by 1 
+ * - reference count of RHS PtrDetails object is incremented by 1.
  */
 template< class T, int size>
 Pointer<T,size>::Pointer(const Pointer &ptrObj){
 
     // TODO: Implement Pointer constructor
     // Lab: Smart Pointer Project Lab
-    auto pd = findPtrInfo(ptrObj.get()); //must be present in GC list
-
-    // increment refcount
-    ++(pd->refcount);
+    // decrement current object refcount
+    auto prev = findPtrInfo(addr);
+    prev->refcount--;
+    // increment new object refcount
+    auto rhs = findPtrInfo(ptrObj.get()); //must be present in GC list
+    rhs->refcount++;
     //copy data
-    this->addr = pd->memPtr;
-    this->isArray = pd->isArray;
-    this->arraySize = pd->arraySize;
+    this->addr = rhs->memPtr;
+    this->isArray = rhs->isArray;
+    this->arraySize = rhs->arraySize;
+#ifdef DEBUG
+    std::cout << "Called standard constructor for Pointer object with address: " 
+              << addr 
+              << std::endl;
+#endif
 }
 /** Overload assignment of Pointer to Pointer (copy assignment operator):
  * Preconditions: 
@@ -218,7 +235,14 @@ Pointer<T, size>::~Pointer(){
     typename std::list<PtrDetails<T> >::iterator p;
     p = findPtrInfo(addr);
     //Decrement refcount of corresponding PtrDetails object
-    --(p->refcount);
+    if (p->refcount){
+        p->refcount--;
+    }
+#ifdef DEBUG
+    std::cout << "Pointer going out of scope, destructor called for address: " 
+              << addr 
+              << std::endl;
+#endif
     //Recover memory --call collect()
     collect();
 }
@@ -232,30 +256,32 @@ bool Pointer<T, size>::collect(){
     // Note: collect() will be called in the destructor
     bool memory_freed = false;
     //Traverse the GC list, checking the refcount of the PtrDetails objects
-    typename std::list<PtrDetails<T> >::iterator p = refContainer.begin();
-    while ( p != refContainer.end()){
-        /* Note that calling erase() directly within a for-loop would invalidate the iterator, so we use a while loop and reset the iterator to the next element using the return value of erase() */
-        if (p->refcount < 1) //reference count is zero, so recover memory
-        {
-            //Call delete or delete[] as appropriate
-            if (p->isArray)
-            {
-                delete[] p->memPtr;
-            }
-            else
-            {
-                delete p->memPtr;
-            }
-            /* Remove the PtrDetails object from GC list, and reset the iterator p to the next element using the return value of erase() */
-            p = refContainer.erase(p);
-            //change return status
+    typename std::list<PtrDetails<T> >::iterator p;
+    do {
+        for (p = refContainer.begin(); p != refContainer.end(); p++){
+            if (p->refcount > 0) //memory in use, so skip
+                continue;
             memory_freed = true;
+            //remove from GC list
+            refContainer.remove(*p);
+            //free memory
+            if (p->memPtr){
+                if (p->isArray){
+                    delete[] p->memPtr;
+                }
+                else {
+                    delete p->memPtr;
+                }
+            }
+            //reset iterator and search for other zero refcounts
+            break;
         }
-        else //memory is in use, so move to next element
-        {
-            ++p;
-        }
-    }
+    } while ( p != refContainer.end());
+#ifdef DEBUG
+    std::cout << "garbage collector called: " 
+              << (memory_freed? "memory freed" : "no memory freed")
+              << std::endl;
+#endif
     return memory_freed;
 }
 

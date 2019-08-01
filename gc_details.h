@@ -17,32 +17,22 @@ array, then arraySize contains its size */
     // Here, mPtr points to the allocated memory.
     // If this is an array, then size specifies
     // the size of the array.
+    PtrDetails(T *p){
+        PtrDetails(p, 0);
+    }
 
     PtrDetails(T *p, unsigned aSize)
     {
         memPtr = p;
         refcount = 1;
         if (aSize > 0){
-            arraySize = aSize;
             isArray = true;
         }
         else
         {
-            arraySize = 0;
             isArray = false;
         }
-    }
-    PtrDetails(T *p){
-        memPtr = p;
-        arraySize = 0;
-        isArray = false;
-        refcount = 1;
-    }
-    PtrDetails(void){
-        memPtr = nullptr;
-        arraySize = 0;
-        isArray = false;
-        refcount = 0;
+        arraySize = aSize;
     }
 };
 // Overloading operator== allows two class objects to be compared.
