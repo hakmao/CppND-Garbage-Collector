@@ -4,7 +4,7 @@
 #include <cstdlib>
 #include "gc_details.h"
 #include "gc_iterator.h"
-#define DEBUG
+// #define DEBUG
 /*
     Pointer implements a pointer type that uses
     garbage collection to release unused memory.
